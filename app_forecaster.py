@@ -133,12 +133,11 @@ name, authentication_status, username = authenticator.login('Login', 'sidebar')
 # --- MAIN APP CONTENT WRAPPED HERE ---
 
 if authentication_status:
-    # 1. LOGOUT BUTTON
+# 1. LOGOUT BUTTON
     with st.sidebar:
-        with st.sidebar:
-    authenticator.logout('Logout', 'sidebar') 
-    # ... other sidebar content ...
-        st.write(f'Welcome, *{name}*')
+        # THESE THREE LINES MUST BE INDENTED 
+        authenticator.logout('Logout', 'sidebar') 
+        st.write(f'Welcome, *{name}*') 
         st.header("Analyzer Settings") 
 
     # 2. THE ENTIRE APPLICATION LOGIC IS NOW INDENTED HERE
@@ -302,5 +301,6 @@ elif authentication_status == False:
 
 elif authentication_status == None:
     st.warning('Please enter your username and password')
+
 
 
