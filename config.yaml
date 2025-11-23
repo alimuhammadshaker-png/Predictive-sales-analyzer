@@ -1,0 +1,12 @@
+cookie:
+  expiry_days: 30
+  key: your_long_random_signature_key_here # <<< CHANGE THIS!
+  name: stream_auth_cookie
+
+credentials:
+  usernames:
+    ali: # Sample Username
+      email: alimuhammadshaker@gmail.com # Use your actual email
+      name: Ali Muhammad # Sample Name
+      # Password: "test" (This is the hashed version of "test")
+      password: $2b$12$NqN.r9QYk4j8.61h.s1S4.3f0e.s9G3K4T2F.w0E9Y.2Y7G4.1N5F
