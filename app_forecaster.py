@@ -5,7 +5,7 @@ from prophet.make_holidays import make_holidays_df
 import matplotlib.pyplot as plt
 import numpy as np
 
-# --- 1. Core Forecasting Function (Updated for Regressors and Holidays) ---
+# --- 1. Core Forecasting Function (No Change Needed) ---
 
 @st.cache_resource
 def generate_forecast(df: pd.DataFrame, forecast_periods: int, holidays_df: pd.DataFrame = None, regressor_cols: list = []):
@@ -14,35 +14,31 @@ def generate_forecast(df: pd.DataFrame, forecast_periods: int, holidays_df: pd.D
     """
     df_fit = df[['ds', 'y'] + regressor_cols].copy()
     
-    # 1. Initialize Model with Holidays (if provided)
+    # Initialize Model with Holidays (if provided)
     model = Prophet(
         yearly_seasonality=True,
         weekly_seasonality=True,
         daily_seasonality=False,
-        holidays=holidays_df # Pass holidays directly to the model
+        holidays=holidays_df
     )
     
-    # 2. Add External Regressors (if provided)
+    # Add External Regressors (if provided)
     for col in regressor_cols:
         model.add_regressor(col)
     
-    # 3. Fit Model
+    # Fit Model
     model.fit(df_fit)
     
-    # 4. Prepare Future Dates & Regressor Values
+    # Prepare Future Dates & Regressor Values
     future_dates = model.make_future_dataframe(periods=forecast_periods)
     
-    # IMPORTANT: Future regressor values must be known (or assumed)
-    # For demonstration, we assume future regressor values are the mean of historical values
+    # Assume future regressor values are the mean of historical values
     if regressor_cols:
         future_regressors = df[regressor_cols].mean().to_dict()
         for col, mean_val in future_regressors.items():
             future_dates[col] = mean_val
     
-    # Merge holidays onto future dates (Prophet does this automatically if provided to make_future_dataframe, 
-    # but we ensure it's correct here if holidays_df is used)
-
-    # 5. Predict
+    # Predict
     forecast = model.predict(future_dates)
     
     # Merge original 'y' values back for analysis
@@ -104,7 +100,7 @@ def analyze_forecast(df_hist: pd.DataFrame, df_forecast: pd.DataFrame, compariso
 
     return alerts
 
-# --- 3. STREAMLIT APP LAYOUT & Sample Data (Updated) ---
+# --- 3. STREAMLIT APP LAYOUT & Sample Data (No Change Needed) ---
 
 st.set_page_config(layout="wide")
 st.title("💰 Predictive Risk & Opportunity Detector")
@@ -113,54 +109,58 @@ st.markdown("---")
 @st.cache_data
 def generate_sample_data():
     dates = pd.to_datetime(pd.date_range(start='2024-01-01', periods=365, freq='D'))
-    np.random.seed(42) # Ensure reproducible results
+    np.random.seed(42)
     y_values = (
         100 + 
         0.5 * np.arange(365) + 
         50 * np.tile([1, 0.5, 0.2, 0.8], 92)[:365] + 
         np.random.normal(0, 10, 365)
     )
-    # Add a sample regressor column: 'Marketing_Spend'
     marketing_spend = 10 + np.sin(np.arange(365) / 30) * 5 + np.random.normal(0, 1, 365)
     
     sample_df = pd.DataFrame({
         'ds': dates, 
         'y': y_values.astype(int),
-        'Marketing_Spend': marketing_spend.astype(int) # Add regressor
+        'Marketing_Spend': marketing_spend.astype(int)
     })
     return sample_df
 
-# --- File Uploader and Main Logic ---
+# --- File Uploader and Main Logic (FIXED FOR SESSION STATE - No Changes here, only in the sidebar section) ---
 
+# 1. Initialize session state key for data persistence
+if 'data_loaded' not in st.session_state:
+    st.session_state['data_loaded'] = None
+
+# Logic for using Sample Data button
+if st.button("Use Sample Data for Demonstration"):
+    st.session_state['data_loaded'] = generate_sample_data()
+    st.info("Using 365 days of automatically generated sample data, including 'Marketing_Spend' as a regressor.")
+
+# Logic for uploaded file
 uploaded_file = st.file_uploader(
     "Upload your Historical Sales Data (CSV format, required columns: 'ds' and 'y', optional regressors)", 
     type="csv"
 )
 
-sales_df = None
-
-# Logic for using Sample Data button
-if st.button("Use Sample Data for Demonstration"):
-    sales_df = generate_sample_data()
-    st.info("Using 365 days of automatically generated sample data, including 'Marketing_Spend' as a regressor.")
-
-# Logic for uploaded file
 if uploaded_file is not None:
     try:
-        sales_df = pd.read_csv(uploaded_file)
-        if 'ds' not in sales_df.columns or 'y' not in sales_df.columns:
+        sales_df_temp = pd.read_csv(uploaded_file)
+        if 'ds' not in sales_df_temp.columns or 'y' not in sales_df_temp.columns:
              st.error("Error: CSV must contain columns named **'ds'** (date) and **'y'** (value).")
-             sales_df = None
+             st.session_state['data_loaded'] = None
         else:
-            sales_df['ds'] = pd.to_datetime(sales_df['ds'])
+            sales_df_temp['ds'] = pd.to_datetime(sales_df_temp['ds'])
+            st.session_state['data_loaded'] = sales_df_temp
             st.success("Data successfully loaded and formatted!")
     except Exception as e:
         st.error(f"Error reading file: {e}")
-        sales_df = None
+        st.session_state['data_loaded'] = None
+
+sales_df = st.session_state['data_loaded']
 
 if sales_df is not None:
     
-    # --- Sidebar Configuration (Updated for Holidays and Regressors) ---
+    # --- Sidebar Configuration (UPDATED FOR CUSTOM HOLIDAYS) ---
     with st.sidebar:
         st.header("Analyzer Settings")
         
@@ -168,20 +168,50 @@ if sales_df is not None:
         forecast_days = st.slider("Future Days to Forecast:", 30, 365, 90)
         
         # --- Holiday Integration ---
-        country_options = ['None', 'US', 'UK', 'CA', 'DE', 'FR', 'IN', 'JP'] # Popular country codes
-        selected_country = st.selectbox("Integrate Country Holidays:", country_options)
+        st.subheader("Holiday and Event Integration")
+        
+        holiday_source = st.radio(
+            "Select Holiday Source:",
+            ('Built-in Country', 'Upload Custom CSV')
+        )
         
         holidays_df = None
-        if selected_country != 'None':
-            # Prophet's utility function to generate standard holidays
-            holidays_df = make_holidays_df(year_list=pd.to_datetime(sales_df['ds']).dt.year.unique().tolist() + 
-                                                    [pd.to_datetime(sales_df['ds']).dt.year.max() + 1], 
-                                          country=selected_country)
-            st.success(f"Loaded {len(holidays_df)} holidays for {selected_country}.")
+        
+        if holiday_source == 'Built-in Country':
+            country_options = ['None', 'US', 'UK', 'CA', 'DE', 'FR', 'IN', 'JP']
+            selected_country = st.selectbox("Select Country Holidays:", country_options)
+            
+            if selected_country != 'None':
+                start_year = pd.to_datetime(sales_df['ds']).dt.year.min()
+                end_year = pd.to_datetime(sales_df['ds']).dt.year.max() + 1
+                
+                holidays_df = make_holidays_df(year_list=list(range(start_year, end_year + 1)), 
+                                              country=selected_country)
+                st.success(f"Loaded {len(holidays_df)} built-in holidays for {selected_country}.")
+                
+        elif holiday_source == 'Upload Custom CSV':
+            uploaded_holidays = st.file_uploader(
+                "Upload Custom Holidays (CSV with 'ds' and 'holiday' columns)",
+                type="csv"
+            )
+            if uploaded_holidays is not None:
+                try:
+                    custom_holidays = pd.read_csv(uploaded_holidays)
+                    if 'ds' in custom_holidays.columns and 'holiday' in custom_holidays.columns:
+                        custom_holidays['ds'] = pd.to_datetime(custom_holidays['ds'])
+                        holidays_df = custom_holidays[['ds', 'holiday']]
+                        st.success(f"Loaded {len(holidays_df)} custom holidays/events.")
+                    else:
+                        st.error("Custom CSV must contain 'ds' (date) and 'holiday' (name) columns.")
+                        holidays_df = None
+                except Exception as e:
+                    st.error(f"Error reading custom holiday file: {e}")
+                    holidays_df = None
 
         # --- External Regressor Integration ---
+        st.subheader("External Regressors")
         data_cols = [col for col in sales_df.columns if col not in ['ds', 'y']]
-        regressor_cols = st.multiselect("Select External Regressors (e.g., Marketing Spend):", data_cols)
+        regressor_cols = st.multiselect("Select External Factors:", data_cols, default=['Marketing_Spend'] if 'Marketing_Spend' in data_cols else [])
         
         st.subheader("Alert Sensitivity")
         comp_days = st.slider("Baseline Comparison (Days):", 7, 90, 30)
@@ -216,11 +246,10 @@ if sales_df is not None:
     st.header("2. Forecast Visualization")
     st.pyplot(plot_fig)
 
-    # --- Component Plots (New Feature) ---
+    # --- Component Plots ---
     st.header("3. Model Components Explained")
-    st.markdown("These plots show the underlying patterns detected by the model (Trend, Seasonality, Holidays).")
+    st.markdown("These plots show the underlying patterns detected by the model (Trend, Seasonality, Holidays/Events).")
     
-    # Prophet's dedicated function to plot components
     component_fig = model.plot_components(forecast_df)
     st.pyplot(component_fig)
     
