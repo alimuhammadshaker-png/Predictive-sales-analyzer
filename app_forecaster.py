@@ -127,6 +127,7 @@ st.set_page_config(layout="wide")
 st.title("💰 Predictive Risk & Opportunity Detector")
 
 # --- AUTHENTICATION LOGIN WIDGET ---
+# ORIGINAL (Causing Error)
 name, authentication_status, username = authenticator.login('Login', 'main')
 
 # --- MAIN APP CONTENT WRAPPED HERE ---
@@ -299,3 +300,4 @@ elif authentication_status == False:
 
 elif authentication_status == None:
     st.warning('Please enter your username and password')
+
