@@ -4,8 +4,29 @@ from prophet import Prophet
 from prophet.make_holidays import make_holidays_df
 import matplotlib.pyplot as plt
 import numpy as np
+import yaml # To handle configuration
+from streamlit_authenticator import Authenticate
+from yaml.loader import SafeLoader
 
-# --- 1. Core Forecasting Function (No Change Needed) ---
+# --- 0. CONFIGURATION & AUTHENTICATION SETUP ---
+
+# Load user credentials (NOTE: config.yaml must be in the same directory)
+try:
+    with open('config.yaml') as file:
+        config = yaml.load(file, Loader=SafeLoader)
+except FileNotFoundError:
+    st.error("Configuration file (config.yaml) not found. Please create it and restart.")
+    st.stop() 
+
+# Initialize Authenticator
+authenticator = Authenticate(
+    config['credentials'],
+    config['cookie']['name'],
+    config['cookie']['key'],
+    config['cookie']['expiry_days']
+)
+
+# --- 1. Core Forecasting Function ---
 
 @st.cache_resource
 def generate_forecast(df: pd.DataFrame, forecast_periods: int, holidays_df: pd.DataFrame = None, regressor_cols: list = []):
@@ -55,7 +76,7 @@ def generate_forecast(df: pd.DataFrame, forecast_periods: int, holidays_df: pd.D
     
     return model, forecast, fig
 
-# --- 2. Actionable Alert Analysis Function (No Change Needed) ---
+# --- 2. Actionable Alert Analysis Function ---
 
 def analyze_forecast(df_hist: pd.DataFrame, df_forecast: pd.DataFrame, comparison_period_days: int = 30, threshold_percent: float = 0.15):
     """
@@ -100,165 +121,181 @@ def analyze_forecast(df_hist: pd.DataFrame, df_forecast: pd.DataFrame, compariso
 
     return alerts
 
-# --- 3. STREAMLIT APP LAYOUT & Sample Data (No Change Needed) ---
+# --- 3. STREAMLIT APP LAYOUT & LOGIC ---
 
 st.set_page_config(layout="wide")
 st.title("💰 Predictive Risk & Opportunity Detector")
-st.markdown("---")
 
-@st.cache_data
-def generate_sample_data():
-    dates = pd.to_datetime(pd.date_range(start='2024-01-01', periods=365, freq='D'))
-    np.random.seed(42)
-    y_values = (
-        100 + 
-        0.5 * np.arange(365) + 
-        50 * np.tile([1, 0.5, 0.2, 0.8], 92)[:365] + 
-        np.random.normal(0, 10, 365)
-    )
-    marketing_spend = 10 + np.sin(np.arange(365) / 30) * 5 + np.random.normal(0, 1, 365)
-    
-    sample_df = pd.DataFrame({
-        'ds': dates, 
-        'y': y_values.astype(int),
-        'Marketing_Spend': marketing_spend.astype(int)
-    })
-    return sample_df
+# --- AUTHENTICATION LOGIN WIDGET ---
+name, authentication_status, username = authenticator.login('Login', 'main')
 
-# --- File Uploader and Main Logic (FIXED FOR SESSION STATE - No Changes here, only in the sidebar section) ---
+# --- MAIN APP CONTENT WRAPPED HERE ---
 
-# 1. Initialize session state key for data persistence
-if 'data_loaded' not in st.session_state:
-    st.session_state['data_loaded'] = None
+if authentication_status:
+    # 1. LOGOUT BUTTON
+    with st.sidebar:
+        authenticator.logout('Logout', 'main')
+        st.write(f'Welcome, *{name}*')
+        st.header("Analyzer Settings") 
 
-# Logic for using Sample Data button
-if st.button("Use Sample Data for Demonstration"):
-    st.session_state['data_loaded'] = generate_sample_data()
-    st.info("Using 365 days of automatically generated sample data, including 'Marketing_Spend' as a regressor.")
+    # 2. THE ENTIRE APPLICATION LOGIC IS NOW INDENTED HERE
+    st.markdown("---")
 
-# Logic for uploaded file
-uploaded_file = st.file_uploader(
-    "Upload your Historical Sales Data (CSV format, required columns: 'ds' and 'y', optional regressors)", 
-    type="csv"
-)
+    @st.cache_data
+    def generate_sample_data():
+        dates = pd.to_datetime(pd.date_range(start='2024-01-01', periods=365, freq='D'))
+        np.random.seed(42)
+        y_values = (
+            100 + 
+            0.5 * np.arange(365) + 
+            50 * np.tile([1, 0.5, 0.2, 0.8], 92)[:365] + 
+            np.random.normal(0, 10, 365)
+        )
+        marketing_spend = 10 + np.sin(np.arange(365) / 30) * 5 + np.random.normal(0, 1, 365)
+        
+        sample_df = pd.DataFrame({
+            'ds': dates, 
+            'y': y_values.astype(int),
+            'Marketing_Spend': marketing_spend.astype(int)
+        })
+        return sample_df
 
-if uploaded_file is not None:
-    try:
-        sales_df_temp = pd.read_csv(uploaded_file)
-        if 'ds' not in sales_df_temp.columns or 'y' not in sales_df_temp.columns:
-             st.error("Error: CSV must contain columns named **'ds'** (date) and **'y'** (value).")
-             st.session_state['data_loaded'] = None
-        else:
-            sales_df_temp['ds'] = pd.to_datetime(sales_df_temp['ds'])
-            st.session_state['data_loaded'] = sales_df_temp
-            st.success("Data successfully loaded and formatted!")
-    except Exception as e:
-        st.error(f"Error reading file: {e}")
+    # --- File Uploader and Main Logic ---
+
+    if 'data_loaded' not in st.session_state:
         st.session_state['data_loaded'] = None
 
-sales_df = st.session_state['data_loaded']
+    if st.button("Use Sample Data for Demonstration"):
+        st.session_state['data_loaded'] = generate_sample_data()
+        st.info("Using 365 days of automatically generated sample data, including 'Marketing_Spend' as a regressor.")
 
-if sales_df is not None:
-    
-    # --- Sidebar Configuration (UPDATED FOR CUSTOM HOLIDAYS) ---
-    with st.sidebar:
-        st.header("Analyzer Settings")
+    uploaded_file = st.file_uploader(
+        "Upload your Historical Sales Data (CSV format, required columns: 'ds' and 'y', optional regressors)", 
+        type="csv"
+    )
+
+    if uploaded_file is not None:
+        try:
+            sales_df_temp = pd.read_csv(uploaded_file)
+            if 'ds' not in sales_df_temp.columns or 'y' not in sales_df_temp.columns:
+                 st.error("Error: CSV must contain columns named **'ds'** (date) and **'y'** (value).")
+                 st.session_state['data_loaded'] = None
+            else:
+                sales_df_temp['ds'] = pd.to_datetime(sales_df_temp['ds'])
+                st.session_state['data_loaded'] = sales_df_temp
+                st.success("Data successfully loaded and formatted!")
+        except Exception as e:
+            st.error(f"Error reading file: {e}")
+            st.session_state['data_loaded'] = None
+
+    sales_df = st.session_state['data_loaded']
+
+    if sales_df is not None:
         
-        st.subheader("Model Parameters")
-        forecast_days = st.slider("Future Days to Forecast:", 30, 365, 90)
-        
-        # --- Holiday Integration ---
-        st.subheader("Holiday and Event Integration")
-        
-        holiday_source = st.radio(
-            "Select Holiday Source:",
-            ('Built-in Country', 'Upload Custom CSV')
-        )
-        
-        holidays_df = None
-        
-        if holiday_source == 'Built-in Country':
-            country_options = ['None', 'US', 'UK', 'CA', 'DE', 'FR', 'IN', 'JP']
-            selected_country = st.selectbox("Select Country Holidays:", country_options)
+        # --- Sidebar Configuration (CONTINUED) ---
+        with st.sidebar:
+            st.subheader("Model Parameters")
+            forecast_days = st.slider("Future Days to Forecast:", 30, 365, 90)
             
-            if selected_country != 'None':
-                start_year = pd.to_datetime(sales_df['ds']).dt.year.min()
-                end_year = pd.to_datetime(sales_df['ds']).dt.year.max() + 1
-                
-                holidays_df = make_holidays_df(year_list=list(range(start_year, end_year + 1)), 
-                                              country=selected_country)
-                st.success(f"Loaded {len(holidays_df)} built-in holidays for {selected_country}.")
-                
-        elif holiday_source == 'Upload Custom CSV':
-            uploaded_holidays = st.file_uploader(
-                "Upload Custom Holidays (CSV with 'ds' and 'holiday' columns)",
-                type="csv"
+            # --- Holiday Integration ---
+            st.subheader("Holiday and Event Integration")
+            
+            holiday_source = st.radio(
+                "Select Holiday Source:",
+                ('Built-in Country', 'Upload Custom CSV')
             )
-            if uploaded_holidays is not None:
-                try:
-                    custom_holidays = pd.read_csv(uploaded_holidays)
-                    if 'ds' in custom_holidays.columns and 'holiday' in custom_holidays.columns:
-                        custom_holidays['ds'] = pd.to_datetime(custom_holidays['ds'])
-                        holidays_df = custom_holidays[['ds', 'holiday']]
-                        st.success(f"Loaded {len(holidays_df)} custom holidays/events.")
-                    else:
-                        st.error("Custom CSV must contain 'ds' (date) and 'holiday' (name) columns.")
+            
+            holidays_df = None
+            
+            if holiday_source == 'Built-in Country':
+                country_options = ['None', 'US', 'UK', 'CA', 'DE', 'FR', 'IN', 'JP']
+                selected_country = st.selectbox("Select Country Holidays:", country_options)
+                
+                if selected_country != 'None':
+                    start_year = pd.to_datetime(sales_df['ds']).dt.year.min()
+                    end_year = pd.to_datetime(sales_df['ds']).dt.year.max() + 1
+                    
+                    holidays_df = make_holidays_df(year_list=list(range(start_year, end_year + 1)), 
+                                                  country=selected_country)
+                    st.success(f"Loaded {len(holidays_df)} built-in holidays for {selected_country}.")
+                    
+            elif holiday_source == 'Upload Custom CSV':
+                uploaded_holidays = st.file_uploader(
+                    "Upload Custom Holidays (CSV with 'ds' and 'holiday' columns)",
+                    type="csv"
+                )
+                if uploaded_holidays is not None:
+                    try:
+                        custom_holidays = pd.read_csv(uploaded_holidays)
+                        if 'ds' in custom_holidays.columns and 'holiday' in custom_holidays.columns:
+                            custom_holidays['ds'] = pd.to_datetime(custom_holidays['ds'])
+                            holidays_df = custom_holidays[['ds', 'holiday']]
+                            st.success(f"Loaded {len(holidays_df)} custom holidays/events.")
+                        else:
+                            st.error("Custom CSV must contain 'ds' (date) and 'holiday' (name) columns.")
+                            holidays_df = None
+                    except Exception as e:
+                        st.error(f"Error reading custom holiday file: {e}")
                         holidays_df = None
-                except Exception as e:
-                    st.error(f"Error reading custom holiday file: {e}")
-                    holidays_df = None
 
-        # --- External Regressor Integration ---
-        st.subheader("External Regressors")
-        data_cols = [col for col in sales_df.columns if col not in ['ds', 'y']]
-        regressor_cols = st.multiselect("Select External Factors:", data_cols, default=['Marketing_Spend'] if 'Marketing_Spend' in data_cols else [])
+            # --- External Regressor Integration ---
+            st.subheader("External Regressors")
+            data_cols = [col for col in sales_df.columns if col not in ['ds', 'y']]
+            regressor_cols = st.multiselect("Select External Factors:", data_cols, default=['Marketing_Spend'] if 'Marketing_Spend' in data_cols else [])
+            
+            st.subheader("Alert Sensitivity")
+            comp_days = st.slider("Baseline Comparison (Days):", 7, 90, 30)
+            threshold = st.slider("Change Threshold (%) for Alert:", 5, 50, 15) / 100.0
+
         
-        st.subheader("Alert Sensitivity")
-        comp_days = st.slider("Baseline Comparison (Days):", 7, 90, 30)
-        threshold = st.slider("Change Threshold (%) for Alert:", 5, 50, 15) / 100.0
+        # --- Run Model and Analysis ---
+        with st.spinner('Running advanced forecasting model and analysis...'):
+            model, forecast_df, plot_fig = generate_forecast(
+                sales_df, 
+                forecast_days, 
+                holidays_df,
+                regressor_cols
+            )
+            alerts = analyze_forecast(sales_df, forecast_df, comp_days, threshold)
+        
+        
+        # --- Display Results ---
+        
+        st.markdown("---")
+        st.header("1. Actionable Insights")
+        
+        for alert in alerts:
+            if "OPPORTUNITY" in alert:
+                st.markdown(f'<div style="background-color:#d4edda; color:#155724; padding:15px; border-left: 5px solid #155724; border-radius:3px; font-weight: bold;">{alert}</div>', unsafe_allow_html=True)
+            elif "RISK" in alert:
+                st.markdown(f'<div style="background-color:#f8d7da; color:#721c24; padding:15px; border-left: 5px solid #721c24; border-radius:3px; font-weight: bold;">{alert}</div>', unsafe_allow_html=True)
+            else:
+                st.info(alert)
 
-    
-    # --- Run Model and Analysis ---
-    with st.spinner('Running advanced forecasting model and analysis...'):
-        model, forecast_df, plot_fig = generate_forecast(
-            sales_df, 
-            forecast_days, 
-            holidays_df,
-            regressor_cols
-        )
-        alerts = analyze_forecast(sales_df, forecast_df, comp_days, threshold)
-    
-    
-    # --- Display Results ---
-    
-    st.markdown("---")
-    st.header("1. Actionable Insights")
-    
-    for alert in alerts:
-        if "OPPORTUNITY" in alert:
-            st.markdown(f'<div style="background-color:#d4edda; color:#155724; padding:15px; border-left: 5px solid #155724; border-radius:3px; font-weight: bold;">{alert}</div>', unsafe_allow_html=True)
-        elif "RISK" in alert:
-            st.markdown(f'<div style="background-color:#f8d7da; color:#721c24; padding:15px; border-left: 5px solid #721c24; border-radius:3px; font-weight: bold;">{alert}</div>', unsafe_allow_html=True)
-        else:
-            st.info(alert)
+        st.markdown("---")
+        st.header("2. Forecast Visualization")
+        st.pyplot(plot_fig)
 
-    st.markdown("---")
-    st.header("2. Forecast Visualization")
-    st.pyplot(plot_fig)
+        # --- Component Plots ---
+        st.header("3. Model Components Explained")
+        st.markdown("These plots show the underlying patterns detected by the model (Trend, Seasonality, Holidays/Events).")
+        
+        component_fig = model.plot_components(forecast_df)
+        st.pyplot(component_fig)
+        
+        st.markdown("---")
+        st.header("4. Raw Forecast Data")
+        st.caption(f"Showing predictions for the next {forecast_days} days. yhat = prediction, yhat_lower/upper = confidence interval.")
+        
+        future_data = forecast_df[forecast_df['y'].isna()][['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
+        st.dataframe(future_data, use_container_width=True)
 
-    # --- Component Plots ---
-    st.header("3. Model Components Explained")
-    st.markdown("These plots show the underlying patterns detected by the model (Trend, Seasonality, Holidays/Events).")
-    
-    component_fig = model.plot_components(forecast_df)
-    st.pyplot(component_fig)
-    
-    st.markdown("---")
-    st.header("4. Raw Forecast Data")
-    st.caption(f"Showing predictions for the next {forecast_days} days. yhat = prediction, yhat_lower/upper = confidence interval.")
-    
-    future_data = forecast_df[forecast_df['y'].isna()][['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
-    st.dataframe(future_data, use_container_width=True)
+    else:
+        st.info("Upload a CSV file or click 'Use Sample Data' to start your analysis.")
+        
+# --- Authentication Error Messages ---
+elif authentication_status == False:
+    st.error('Username/password is incorrect')
 
-else:
-    st.info("Upload a CSV file or click 'Use Sample Data' to start your analysis.")
+elif authentication_status == None:
+    st.warning('Please enter your username and password')
