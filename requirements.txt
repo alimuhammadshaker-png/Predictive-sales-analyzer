@@ -1,41 +1,11 @@
-# App Configuration for Predictive Risk & Opportunity Detector
-
-forecast:
-  forecast_days: 90         # Number of days to forecast
-  compare_days: 30          # Days used for baseline comparison
-  alert_threshold: 0.15     # Threshold for triggering risk/opportunity alerts (as decimal)
-
-holidays:
-  source: built-in          # Options: none, built-in, upload
-  country: US               # Used if source is built-in
-  custom:
-    enabled: true
-    name: CustomHoliday
-    dates:
-      - 2025-01-01
-      - 2025-03-23
-      - 2025-08-14
-
-regressors:
-  default:
-    - Marketing_Spend
-    - Promo_Intensity
-  future_multipliers:
-    Marketing_Spend: 1.0
-    Promo_Intensity: 1.0
-
-model:
-  compare_enabled: true     # Enable Prophet vs ARIMA comparison
-  holdout_days: 30          # Days used for model evaluation
-
-theme:
-  default: Light            # Options: Light, Dark
-
-language:
-  default: EN               # Options: EN, UR
-
-export:
-  enable_csv: true
-  enable_excel: true
-
-
+streamlit
+pandas
+numpy
+matplotlib
+plotly
+openpyxl
+statsmodels
+prophet
+scikit-learn
+seaborn
+holidays
